@@ -1,0 +1,262 @@
+name: Windows beta
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Intended prerelease tag, recorded in the build artifact
+        required: true
+        default: v0.1.0-beta.1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-beta
+  cancel-in-progress: false
+
+env:
+  TARGET: x86_64-pc-windows-msvc
+  DESKTOP_COMMIT: 9fc3d9d4fdac705d655023809bb293351e3f7aa0
+  API_COMMIT: aed0867827d90f816d18e89a04fb72c786ee9c47
+  STORE_COMMIT: e96576817d28bc4a036b21858882fde48a2c5ab0
+
+jobs:
+  build:
+    name: Native Windows installer and evidence
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out public release orchestration
+        uses: actions/checkout@v4
+        with:
+          path: release
+
+      - name: Configure isolated read-only source keys
+        env:
+          DESKTOP_KEY: ${{ secrets.DESKTOP_DEPLOY_KEY }}
+          API_KEY: ${{ secrets.API_DEPLOY_KEY }}
+          STORE_KEY: ${{ secrets.STORE_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$DESKTOP_KEY" > "$HOME/.ssh/desktop"
+          printf '%s\n' "$API_KEY" > "$HOME/.ssh/api"
+          printf '%s\n' "$STORE_KEY" > "$HOME/.ssh/store"
+          chmod 600 "$HOME/.ssh/desktop" "$HOME/.ssh/api" "$HOME/.ssh/store"
+          ssh-keyscan -t ed25519 github.com > "$HOME/.ssh/known_hosts"
+          fingerprint=$(ssh-keygen -lf "$HOME/.ssh/known_hosts" -E sha256 | awk '{print $2}')
+          test "$fingerprint" = "SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPtw+v4fWPg32XqU"
+          cat > "$HOME/.ssh/config" <<EOF
+          Host github-desktop
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/desktop
+            IdentitiesOnly yes
+          Host github-api
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/api
+            IdentitiesOnly yes
+          Host github-store
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/store
+            IdentitiesOnly yes
+          EOF
+          chmod 600 "$HOME/.ssh/config"
+
+      - name: Check out exact private source commits
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none git@github-desktop:erodataM/libase-desktop.git desktop
+          git clone --filter=blob:none git@github-api:erodataM/libase-api.git api
+          git clone --filter=blob:none git@github-store:erodataM/libase-store.git store
+          git -C desktop checkout --detach "$DESKTOP_COMMIT"
+          git -C api checkout --detach "$API_COMMIT"
+          git -C store checkout --detach "$STORE_COMMIT"
+          test "$(git -C desktop rev-parse HEAD)" = "$DESKTOP_COMMIT"
+          test "$(git -C api rev-parse HEAD)" = "$API_COMMIT"
+          test "$(git -C store rev-parse HEAD)" = "$STORE_COMMIT"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build and verify native Store release
+        working-directory: store
+        run: |
+          cargo fetch --locked
+          python3 scripts/build_release_bundle.py --out ../artifacts/store --offline
+          mkdir -p ../artifacts/store/home
+          tar -xzf ../artifacts/store/*.tar.gz -C ../artifacts/store/home
+
+      - name: Resolve Store release paths
+        id: store
+        run: |
+          {
+            echo "manifest=$(find artifacts/store -maxdepth 1 -name '*.manifest.json' -print -quit)"
+            echo "bundle=$(find artifacts/store -maxdepth 1 -name '*.tar.gz' -print -quit)"
+            echo "home=$(find artifacts/store/home -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install API build dependencies
+        working-directory: api
+        run: python -m pip install --upgrade pip && python -m pip install -e '.[build]'
+
+      - name: Build native-profile API sidecar
+        working-directory: api
+        run: |
+          TAURI_TARGET_TRIPLE="$TARGET" python scripts/build_sidecar.py \
+            --runtime-profile native \
+            --output-dir ../artifacts/api/sidecar \
+            --evidence-output ../artifacts/api/sidecar-evidence.json
+
+      - name: Qualify native sidecar against real Store
+        env:
+          LIBASE_TEST_SIDECAR_BINARY: ${{ github.workspace }}/artifacts/api/sidecar/libase-api-x86_64-pc-windows-msvc.exe
+          LIBASE_TEST_STORE_BUILDER_BINARY: ${{ github.workspace }}/${{ steps.store.outputs.home }}/bin/libase-store-builder.exe
+          LIBASE_TEST_STORE_RUNTIME_BINARY: ${{ github.workspace }}/${{ steps.store.outputs.home }}/bin/libase-store-runtime.exe
+        working-directory: api
+        run: |
+          python tests/test_sidecar_store_qualification.py -v
+          python ../release/scripts/write_sidecar_test_report.py \
+            --sidecar "$LIBASE_TEST_SIDECAR_BINARY" --target "$TARGET" \
+            --output ../artifacts/api/sidecar-test-report.json
+
+      - name: Assemble and verify API evidence
+        working-directory: api
+        run: |
+          SIDE=../artifacts/api/sidecar/libase-api-$TARGET.exe
+          python scripts/native_dep_report.py --sidecar "$SIDE" --platform-triple "$TARGET" --output ../artifacts/api/native-dep-report.json
+          python scripts/validate_native_dep_report.py ../artifacts/api/native-dep-report.json
+          python scripts/generate_sbom.py --evidence ../artifacts/api/sidecar-evidence.json --output ../artifacts/api/sbom.json
+          python scripts/validate_sbom.py ../artifacts/api/sbom.json
+          python scripts/integrity.py --sidecar "$SIDE" --sidecar-evidence ../artifacts/api/sidecar-evidence.json --output ../artifacts/api/integrity-report.json --strict
+          python - <<'PY' > ../artifacts/api/tool-versions.txt
+          import json
+          value = json.load(open('../artifacts/api/sidecar-evidence.json'))
+          print(value['python_version'])
+          print(value['pyinstaller_version'])
+          PY
+          mapfile -t versions < ../artifacts/api/tool-versions.txt
+          python scripts/artifact_manifest.py generate --sidecar "$SIDE" --target-triple "$TARGET" \
+            --git-commit "$API_COMMIT" --python-version "${versions[0]}" --pyinstaller-version "${versions[1]}" \
+            --output ../artifacts/api/artifact-manifest.json
+          python scripts/artifact_manifest.py validate ../artifacts/api/artifact-manifest.json --sidecar "$SIDE"
+          python scripts/release_evidence.py assemble --output ../artifacts/api/evidence --platform-triple "$TARGET" \
+            --git-commit "$API_COMMIT" --sidecar "$SIDE" \
+            --sidecar-evidence ../artifacts/api/sidecar-evidence.json --sbom ../artifacts/api/sbom.json \
+            --native-dep-report ../artifacts/api/native-dep-report.json --integrity-report ../artifacts/api/integrity-report.json \
+            --sidecar-test-report ../artifacts/api/sidecar-test-report.json
+          python scripts/release_evidence.py verify ../artifacts/api/evidence --mode partial --output-json ../artifacts/api/evidence-verify.json
+
+      - name: Run Desktop source checks
+        working-directory: desktop
+        run: npm ci && npm run check
+
+      - name: Assemble verified native inputs
+        working-directory: desktop
+        run: |
+          python scripts/assemble_native_inputs.py \
+            --api-manifest ../artifacts/api/artifact-manifest.json \
+            --api-evidence-dir ../artifacts/api/evidence \
+            --store-manifest "../${{ steps.store.outputs.manifest }}" \
+            --store-bundle "../${{ steps.store.outputs.bundle }}" \
+            --store-home "../${{ steps.store.outputs.home }}" \
+            --evidence ../artifacts/desktop/native-input-evidence.json
+
+      - name: Build Windows NSIS installer
+        working-directory: desktop
+        run: npm run tauri build -- --bundles nsis
+
+      - name: Run packaged native startup gate
+        working-directory: desktop
+        run: |
+          python scripts/build_fixture_store_repository.py \
+            --builder "src-tauri/binaries/libase-store-builder-$TARGET.exe" \
+            --repository ../artifacts/desktop/fixture-app-data/libase-store \
+            --output ../artifacts/desktop/fixture-result.json
+          python - <<'PY' > ../artifacts/desktop/fixture-values.txt
+          import json
+          value = json.load(open('../artifacts/desktop/fixture-result.json'))
+          print(value['generation_id'])
+          print(value['games'])
+          print(value['players'])
+          PY
+          mapfile -t fixture < ../artifacts/desktop/fixture-values.txt
+          python scripts/test_packaged_startup.py \
+            --api "src-tauri/binaries/libase-api-$TARGET.exe" \
+            --store-adapter "src-tauri/binaries/libase-store-runtime-$TARGET.exe" \
+            --repository ../artifacts/desktop/fixture-app-data/libase-store \
+            --target "$TARGET" --expected-generation-id "${fixture[0]}" \
+            --expected-games "${fixture[1]}" --expected-players "${fixture[2]}" \
+            --output ../artifacts/desktop/packaged-startup-report.json
+
+      - name: Collect installer and verify strict Desktop evidence
+        working-directory: desktop
+        run: |
+          python scripts/collect_package_artifacts.py --target "$TARGET" --output-dir ../artifacts/desktop/packages
+          python scripts/desktop_release_evidence.py assemble --output ../artifacts/desktop/evidence \
+            --target "$TARGET" --desktop-commit "$DESKTOP_COMMIT" \
+            --native-input-evidence ../artifacts/desktop/native-input-evidence.json \
+            --packages-manifest ../artifacts/desktop/packages/packages-manifest.json \
+            --packaged-startup-report ../artifacts/desktop/packaged-startup-report.json
+          python scripts/desktop_release_evidence.py verify ../artifacts/desktop/evidence --mode strict \
+            --package-root ../artifacts/desktop/packages --output-json ../artifacts/desktop/evidence-verify.json
+
+      - name: Prepare source-free release artifact
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          mkdir -p dist/windows-beta
+          cp "artifacts/desktop/packages/Libase-$TARGET.exe" dist/windows-beta/
+          cp artifacts/desktop/packages/packages-manifest.json dist/windows-beta/
+          cp artifacts/desktop/evidence-verify.json dist/windows-beta/
+          cp release/scripts/install-spot64-beta.ps1 dist/windows-beta/
+          python - <<'PY'
+          import hashlib, json, os, pathlib, zipfile
+          out = pathlib.Path('dist/windows-beta')
+          refs = {
+              'schema_version': 1,
+              'intended_release_tag': os.environ['RELEASE_TAG'],
+              'desktop_commit': '${{ env.DESKTOP_COMMIT }}',
+              'api_commit': '${{ env.API_COMMIT }}',
+              'store_commit': '${{ env.STORE_COMMIT }}',
+              'target': '${{ env.TARGET }}',
+              'unsigned': True,
+          }
+          (out / 'source-refs.json').write_text(json.dumps(refs, indent=2, sort_keys=True) + '\n')
+          with zipfile.ZipFile(out / 'windows-beta-evidence.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
+              for root in ('artifacts/api/evidence', 'artifacts/desktop/evidence'):
+                  for path in sorted(pathlib.Path(root).rglob('*')):
+                      if path.is_file(): archive.write(path, path.as_posix())
+          lines = []
+          for path in sorted(out.iterdir()):
+              if path.is_file() and path.name != 'SHA256SUMS.txt':
+                  digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                  lines.append(f'{digest}  {path.name}')
+          (out / 'SHA256SUMS.txt').write_text('\n'.join(lines) + '\n')
+          PY
+
+      - name: Upload source-free Windows beta artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spot64-windows-beta
+          retention-days: 14
+          if-no-files-found: error
+          path: dist/windows-beta/*
