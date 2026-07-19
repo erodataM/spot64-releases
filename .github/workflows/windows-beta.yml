@@ -99,6 +99,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.94.1
+          components: clippy, rustfmt
 
       - name: Build and verify native Store release
         working-directory: store
