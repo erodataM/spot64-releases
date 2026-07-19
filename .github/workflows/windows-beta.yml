@@ -72,6 +72,7 @@ jobs:
       - name: Check out exact private source commits
         run: |
           set -euo pipefail
+          git config --global core.autocrlf false
           git clone --filter=blob:none git@github-desktop:erodataM/libase-desktop.git desktop
           git clone --filter=blob:none git@github-api:erodataM/libase-api.git api
           git clone --filter=blob:none git@github-store:erodataM/libase-store.git store
