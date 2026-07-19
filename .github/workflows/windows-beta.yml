@@ -107,6 +107,7 @@ jobs:
           cargo fetch --locked
           python3 scripts/manage_core_artifact.py verify
           cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --locked --workspace --all-targets
           python3 scripts/build_release_bundle.py --out ../artifacts/store --offline
           mkdir -p ../artifacts/store/home
           tar -xzf ../artifacts/store/*.tar.gz -C ../artifacts/store/home
