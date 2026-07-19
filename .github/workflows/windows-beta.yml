@@ -47,9 +47,9 @@ jobs:
           printf '%s\n' "$API_KEY" > "$HOME/.ssh/api"
           printf '%s\n' "$STORE_KEY" > "$HOME/.ssh/store"
           chmod 600 "$HOME/.ssh/desktop" "$HOME/.ssh/api" "$HOME/.ssh/store"
-          ssh-keyscan -t ed25519 github.com > "$HOME/.ssh/known_hosts"
-          fingerprint=$(ssh-keygen -lf "$HOME/.ssh/known_hosts" -E sha256 | awk '{print $2}' | sort -u)
-          test "$fingerprint" = "SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPtw+v4fWPg32XqU"
+          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$HOME/.ssh/known_hosts"
+          fingerprint=$(ssh-keygen -lf "$HOME/.ssh/known_hosts" -E sha256 | awk '{print $2}')
+          test "$fingerprint" = "SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU"
           cat > "$HOME/.ssh/config" <<EOF
           Host github-desktop
             HostName github.com
