@@ -8,6 +8,22 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $headers = @{ "User-Agent" = "Spot64-Beta-Installer" }
+
+function Remove-WorkDirectory {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    for ($attempt = 1; $attempt -le 10; $attempt++) {
+        try {
+            Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+            return
+        } catch {
+            if ($attempt -lt 10) { Start-Sleep -Seconds 2 }
+        }
+    }
+    Write-Warning "Temporary files remain at '$Path' because another process is using them. They can be deleted later."
+}
+
 if ($Tag -eq "latest") {
     $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases?per_page=20" -Headers $headers
     $release = $releases | Where-Object { -not $_.draft } | Select-Object -First 1
@@ -97,5 +113,5 @@ try {
         Start-Process -FilePath $installer -Wait
     }
 } finally {
-    if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
+    Remove-WorkDirectory -Path $work
 }
