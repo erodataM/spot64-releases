@@ -17,7 +17,7 @@ concurrency:
 
 env:
   TARGET: x86_64-pc-windows-msvc
-  DESKTOP_COMMIT: 168f13c25e87835a9edfd3751435d737dd1cb97c
+  DESKTOP_COMMIT: 254a0a45231e37a07a741780e0159116b0cee37f
   API_COMMIT: aed0867827d90f816d18e89a04fb72c786ee9c47
   STORE_COMMIT: df41dc033e6bd830abf3f4dbe4871ec90071e993
 
@@ -205,7 +205,7 @@ jobs:
           print(value['games'])
           print(value['players'])
           PY
-          mapfile -t fixture < ../artifacts/desktop/fixture-values.txt
+          mapfile -t fixture < <(tr -d '\r' < ../artifacts/desktop/fixture-values.txt)
           python scripts/test_packaged_startup.py \
             --api "src-tauri/binaries/libase-api-$TARGET.exe" \
             --store-adapter "src-tauri/binaries/libase-store-runtime-$TARGET.exe" \
