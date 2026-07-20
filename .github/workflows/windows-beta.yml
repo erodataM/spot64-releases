@@ -18,7 +18,7 @@ concurrency:
 env:
   TARGET: x86_64-pc-windows-msvc
   DESKTOP_COMMIT: 5c45f7da2ce0506a127de245d16f96ae51cb9a28
-  API_COMMIT: ca1778e3a0daa58d129997917c9d071bf8c81e5f
+  API_COMMIT: 691a66ec5f9bfd3572f205847f15faaeeaeec8ff
   STORE_COMMIT: df41dc033e6bd830abf3f4dbe4871ec90071e993
 
 jobs:
