@@ -32,13 +32,19 @@ class CorpusPackageTests(unittest.TestCase):
             generation.mkdir(parents=True)
             (repo / "current.json").write_text(json.dumps({"currentGenerationId": generation_id}))
             (generation / "manifest.json").write_text(json.dumps({"visibleGames": 3}))
+            (generation / "index-policy.json").write_text(
+                json.dumps({"schemaVersion": 1, "positionMaxPly": 40})
+            )
+            (generation / "empty.bin").write_bytes(b"")
             (generation / "one.bin").write_bytes(b"a" * 700_000)
             (generation / "two.bin").write_bytes(b"b" * 700_000)
             output = root / "output"
             manifest = package_corpus.build(repo, output, 1_048_576)
             self.assertGreaterEqual(len(manifest["volumes"]), 2)
+            self.assertEqual(manifest["position_max_ply"], 40)
             result = verify_corpus_packages.verify(output, output / "spot64-corpus-manifest.json")
             self.assertTrue(result["ok"])
+            self.assertEqual(result["position_max_ply"], 40)
 
             archive = next(output.glob("*.zip"))
             with archive.open("r+b") as stream:
@@ -46,6 +52,36 @@ class CorpusPackageTests(unittest.TestCase):
                 stream.write(b"x")
             with self.assertRaises(ValueError):
                 verify_corpus_packages.verify(output, output / "spot64-corpus-manifest.json")
+
+    def test_round_trip_file_larger_than_one_volume(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            generation_id = "b" * 64
+            generation = repo / "generations" / generation_id
+            generation.mkdir(parents=True)
+            (repo / "current.json").write_text(json.dumps({"currentGenerationId": generation_id}))
+            (generation / "manifest.json").write_text(json.dumps({"visibleGames": 1}))
+            (generation / "index-policy.json").write_text(
+                json.dumps({"schemaVersion": 1, "positionMaxPly": 40})
+            )
+            payload = (b"position-index-" * 120_000)[:1_500_000]
+            (generation / "position.dir").write_bytes(payload)
+
+            output = root / "output"
+            manifest = package_corpus.build(repo, output, 1_048_576)
+            position_entry = next(
+                item for item in manifest["files"] if item["path"].endswith("position.dir")
+            )
+            self.assertEqual(len(position_entry["parts"]), 2)
+            self.assertEqual(
+                sum(item["size_bytes"] for item in position_entry["parts"]),
+                len(payload),
+            )
+            result = verify_corpus_packages.verify(
+                output, output / "spot64-corpus-manifest.json"
+            )
+            self.assertEqual(result["parts"], len(manifest["files"]) + 1)
 
     def test_rejects_oversized_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -71,6 +107,7 @@ class InstallerContractTests(unittest.TestCase):
     def test_installer_retains_full_download_fallback(self) -> None:
         script = (ROOT / "scripts" / "install-spot64-beta.ps1").read_text()
         self.assertIn("function Test-InstalledCorpus", script)
+        self.assertIn("[int]$manifest.position_max_ply -lt 40", script)
         self.assertIn("skipping corpus download", script)
         self.assertIn("Downloading $($volume.asset)", script)
         self.assertIn("Expand-Archive", script)

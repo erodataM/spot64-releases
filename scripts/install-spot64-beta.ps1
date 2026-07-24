@@ -52,6 +52,63 @@ function Get-CorpusRelativePath {
     return $Path.Substring("libase-store/".Length) -replace '/', [IO.Path]::DirectorySeparatorChar
 }
 
+function Get-StagingRelativePath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (
+        $Path -notmatch '^(\.spot64-parts|libase-store)/[A-Za-z0-9._/-]+$' -or
+        $Path -match '(^|/)\.\.?(/|$)' -or
+        $Path.Contains("//")
+    ) {
+        throw "Unsafe package path: $Path"
+    }
+    return $Path -replace '/', [IO.Path]::DirectorySeparatorChar
+}
+
+function Restore-CorpusParts {
+    param(
+        [Parameter(Mandatory = $true)][string]$Stage,
+        [Parameter(Mandatory = $true)]$Files
+    )
+
+    foreach ($file in $Files) {
+        $parts = @($file.parts)
+        if ($parts.Count -eq 0) { continue }
+        $logicalPath = Get-StagingRelativePath -Path ([string]$file.path)
+        $candidate = Join-Path $Stage $logicalPath
+        $parent = Split-Path -Parent $candidate
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        $targetStream = [IO.File]::Open(
+            $candidate,
+            [IO.FileMode]::CreateNew,
+            [IO.FileAccess]::Write,
+            [IO.FileShare]::None
+        )
+        try {
+            foreach ($part in ($parts | Sort-Object -Property offset_bytes)) {
+                $partPath = Join-Path $Stage (
+                    Get-StagingRelativePath -Path ([string]$part.path)
+                )
+                if (-not (Test-PlainFile -Path $partPath)) {
+                    throw "Missing corpus file part: $($part.path)"
+                }
+                if ((Get-Item -LiteralPath $partPath).Length -ne $part.size_bytes) {
+                    throw "Size mismatch: $($part.path)"
+                }
+                $sourceStream = [IO.File]::OpenRead($partPath)
+                try {
+                    $sourceStream.CopyTo($targetStream)
+                } finally {
+                    $sourceStream.Dispose()
+                }
+                Remove-Item -LiteralPath $partPath -Force
+            }
+        } finally {
+            $targetStream.Dispose()
+        }
+    }
+}
+
 function Test-InstalledCorpus {
     param(
         [Parameter(Mandatory = $true)][string]$Target,
@@ -59,6 +116,7 @@ function Test-InstalledCorpus {
     )
 
     try {
+        if ([int]$Manifest.position_max_ply -lt 40) { return $false }
         $generationId = [string]$Manifest.generation_id
         if ($generationId -notmatch '^[0-9a-f]{64}$') { return $false }
         if (-not (Test-PlainDirectory -Path $Target)) { return $false }
@@ -147,8 +205,9 @@ function Invoke-Spot64BetaInstaller {
         Invoke-WebRequest -Uri $assets["spot64-corpus-manifest.json"] -OutFile $manifestPath
         $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
         if (
-            $manifest.schema_version -ne 1 -or
+            $manifest.schema_version -ne 2 -or
             $manifest.kind -ne "spot64-corpus" -or
+            [int]$manifest.position_max_ply -lt 40 -or
             [string]$manifest.generation_id -notmatch '^[0-9a-f]{64}$'
         ) {
             throw "Unsupported corpus manifest."
@@ -185,6 +244,8 @@ function Invoke-Spot64BetaInstaller {
                 if ($actual -cne $volume.sha256) { throw "SHA-256 mismatch for $($volume.asset)" }
                 Expand-Archive -LiteralPath $archive -DestinationPath $stage -Force
             }
+
+            Restore-CorpusParts -Stage $stage -Files $manifest.files
 
             foreach ($file in $manifest.files) {
                 $null = Get-CorpusRelativePath -Path ([string]$file.path)

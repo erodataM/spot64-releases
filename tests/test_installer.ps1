@@ -50,6 +50,7 @@ try {
         schema_version = 1
         kind = "spot64-corpus"
         generation_id = $generationId
+        position_max_ply = 40
         files = @($paths | ForEach-Object {
             New-ManifestEntry -AppData $appData -RelativePath $_
         })
@@ -57,6 +58,14 @@ try {
 
     Assert-True (Test-InstalledCorpus -Target $target -Manifest $manifest) `
         "A matching installed corpus was not reusable."
+
+    $shortHorizonManifest = [pscustomobject]@{
+        generation_id = $generationId
+        position_max_ply = 20
+        files = $manifest.files
+    }
+    Assert-True (-not (Test-InstalledCorpus -Target $target -Manifest $shortHorizonManifest)) `
+        "A corpus with a position horizon below 40 plies was accepted."
 
     Set-Content -LiteralPath (Join-Path $generation "manifest.json") -Value '{"visibleGames":4}'
     Assert-True (-not (Test-InstalledCorpus -Target $target -Manifest $manifest)) `
@@ -85,6 +94,33 @@ try {
     }
     Assert-True (-not (Test-InstalledCorpus -Target $target -Manifest $otherGeneration)) `
         "A different installed generation was accepted."
+
+    $stage = Join-Path $temporary "split-stage"
+    $partsRoot = Join-Path $stage ".spot64-parts"
+    New-Item -ItemType Directory -Path $partsRoot -Force | Out-Null
+    [IO.File]::WriteAllBytes((Join-Path $partsRoot "part-001"), [Text.Encoding]::UTF8.GetBytes("position-"))
+    [IO.File]::WriteAllBytes((Join-Path $partsRoot "part-002"), [Text.Encoding]::UTF8.GetBytes("index"))
+    $splitFiles = @([pscustomobject]@{
+        path = "libase-store/generations/$generationId/position.dir"
+        parts = @(
+            [pscustomobject]@{
+                path = ".spot64-parts/part-001"
+                offset_bytes = 0
+                size_bytes = 9
+            },
+            [pscustomobject]@{
+                path = ".spot64-parts/part-002"
+                offset_bytes = 9
+                size_bytes = 5
+            }
+        )
+    })
+    Restore-CorpusParts -Stage $stage -Files $splitFiles
+    $restored = Join-Path $stage "libase-store/generations/$generationId/position.dir"
+    Assert-True ((Get-Content -Raw -LiteralPath $restored) -ceq "position-index") `
+        "Split corpus file was not restored byte-for-byte."
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $partsRoot "part-001"))) `
+        "Restored corpus parts were not removed."
 
     Write-Host "Spot64 installer tests passed."
 } finally {

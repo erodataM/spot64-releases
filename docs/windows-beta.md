@@ -38,7 +38,8 @@ python3 scripts/verify_corpus_packages.py \
 Only the active generation is included. `current.json` may retain the ID of a
 previous generation for rollback history; the Store CLI accepts the repository
 when that older generation is absent, and the active generation remains fully
-self-contained.
+self-contained. Packaging records the generation's `position_max_ply`; beta
+publication and installation require at least 40 plies (20 full moves).
 
 After downloading the successful `spot64-windows-beta` workflow artifact:
 

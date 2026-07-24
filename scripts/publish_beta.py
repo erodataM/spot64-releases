@@ -12,6 +12,8 @@ from pathlib import Path
 
 from verify_corpus_packages import verify as verify_corpus
 
+MIN_POSITION_MAX_PLY = 40
+
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -52,6 +54,10 @@ def validate_corpus(root: Path) -> list[Path]:
     result = verify_corpus(root, manifest)
     if result.get("ok") is not True:
         raise ValueError("corpus verification did not pass")
+    if result.get("position_max_ply", 0) < MIN_POSITION_MAX_PLY:
+        raise ValueError(
+            f"corpus position horizon must be at least {MIN_POSITION_MAX_PLY} plies"
+        )
     declared = {item["asset"] for item in json.loads(manifest.read_text())["volumes"]}
     assets = {path.name for path in root.iterdir() if path.is_file()}
     if assets != declared | {manifest.name}:
@@ -86,6 +92,8 @@ def main() -> int:
             f"# Spot64 Windows beta {args.tag}\n\n"
             "Unsigned beta for named testers. Windows SmartScreen may require an explicit confirmation.\n\n"
             f"Corpus: {manifest['visible_games']:,} games, generation `{manifest['generation_id']}`.\n\n"
+            f"Position tree: {manifest['position_max_ply']} plies "
+            f"({manifest['position_max_ply'] // 2} full moves).\n\n"
             "Download `install-spot64-beta.ps1` and run it with PowerShell; it verifies or reuses "
             "the matching corpus before launching the application installer.\n",
             encoding="utf-8",
