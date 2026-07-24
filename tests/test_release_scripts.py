@@ -60,5 +60,21 @@ class CorpusPackageTests(unittest.TestCase):
         self.assertFalse(verify_corpus_packages.safe_name("C:\\escape"))
 
 
+class InstallerContractTests(unittest.TestCase):
+    def test_windows_workflow_runs_incremental_installer_tests_first(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "windows-beta.yml").read_text()
+        installer_test = workflow.index("Test incremental beta installer")
+        private_sources = workflow.index("Configure isolated read-only source keys")
+        self.assertLess(installer_test, private_sources)
+        self.assertIn("./release/tests/test_installer.ps1", workflow)
+
+    def test_installer_retains_full_download_fallback(self) -> None:
+        script = (ROOT / "scripts" / "install-spot64-beta.ps1").read_text()
+        self.assertIn("function Test-InstalledCorpus", script)
+        self.assertIn("skipping corpus download", script)
+        self.assertIn("Downloading $($volume.asset)", script)
+        self.assertIn("Expand-Archive", script)
+
+
 if __name__ == "__main__":
     unittest.main()

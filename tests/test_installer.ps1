@@ -1,0 +1,92 @@
+$ErrorActionPreference = "Stop"
+
+. (Join-Path $PSScriptRoot "../scripts/install-spot64-beta.ps1")
+
+function Assert-True {
+    param(
+        [Parameter(Mandatory = $true)][bool]$Condition,
+        [Parameter(Mandatory = $true)][string]$Message
+    )
+    if (-not $Condition) { throw $Message }
+}
+
+function New-ManifestEntry {
+    param(
+        [Parameter(Mandatory = $true)][string]$AppData,
+        [Parameter(Mandatory = $true)][string]$RelativePath
+    )
+
+    $candidate = Join-Path $AppData ($RelativePath -replace '/', [IO.Path]::DirectorySeparatorChar)
+    return [pscustomobject]@{
+        path = $RelativePath
+        size_bytes = (Get-Item -LiteralPath $candidate).Length
+        sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $candidate).Hash.ToLowerInvariant()
+        volume = "fixture.zip"
+    }
+}
+
+$temporary = Join-Path ([IO.Path]::GetTempPath()) ("spot64-installer-test-" + [guid]::NewGuid())
+try {
+    $appData = Join-Path $temporary "app-data"
+    $target = Join-Path $appData "libase-store"
+    $generationId = "a" * 64
+    $generation = Join-Path $target "generations/$generationId"
+    New-Item -ItemType Directory -Path $generation -Force | Out-Null
+
+    Set-Content -LiteralPath (Join-Path $target "current.json") -Value (
+        @{ currentGenerationId = $generationId } | ConvertTo-Json -Compress
+    )
+    Set-Content -LiteralPath (Join-Path $generation "manifest.json") -Value '{"visibleGames":3}'
+    Set-Content -LiteralPath (Join-Path $generation "manifest.sha256") -Value ("b" * 64)
+    Set-Content -LiteralPath (Join-Path $generation "segment.bin") -Value "fixture-segment"
+
+    $paths = @(
+        "libase-store/current.json",
+        "libase-store/generations/$generationId/manifest.json",
+        "libase-store/generations/$generationId/manifest.sha256",
+        "libase-store/generations/$generationId/segment.bin"
+    )
+    $manifest = [pscustomobject]@{
+        schema_version = 1
+        kind = "spot64-corpus"
+        generation_id = $generationId
+        files = @($paths | ForEach-Object {
+            New-ManifestEntry -AppData $appData -RelativePath $_
+        })
+    }
+
+    Assert-True (Test-InstalledCorpus -Target $target -Manifest $manifest) `
+        "A matching installed corpus was not reusable."
+
+    Set-Content -LiteralPath (Join-Path $generation "manifest.json") -Value '{"visibleGames":4}'
+    Assert-True (-not (Test-InstalledCorpus -Target $target -Manifest $manifest)) `
+        "A modified metadata anchor was accepted."
+    Set-Content -LiteralPath (Join-Path $generation "manifest.json") -Value '{"visibleGames":3}'
+
+    Remove-Item -LiteralPath (Join-Path $generation "segment.bin")
+    Assert-True (-not (Test-InstalledCorpus -Target $target -Manifest $manifest)) `
+        "An incomplete installed corpus was accepted."
+    Set-Content -LiteralPath (Join-Path $generation "segment.bin") -Value "fixture-segment"
+
+    $unsafeManifest = [pscustomobject]@{
+        generation_id = $generationId
+        files = @($manifest.files) + @([pscustomobject]@{
+            path = "libase-store/../escape"
+            size_bytes = 0
+            sha256 = "0" * 64
+        })
+    }
+    Assert-True (-not (Test-InstalledCorpus -Target $target -Manifest $unsafeManifest)) `
+        "An unsafe corpus path was accepted."
+
+    $otherGeneration = [pscustomobject]@{
+        generation_id = "c" * 64
+        files = $manifest.files
+    }
+    Assert-True (-not (Test-InstalledCorpus -Target $target -Manifest $otherGeneration)) `
+        "A different installed generation was accepted."
+
+    Write-Host "Spot64 installer tests passed."
+} finally {
+    Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
+}

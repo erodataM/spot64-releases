@@ -86,8 +86,8 @@ def main() -> int:
             f"# Spot64 Windows beta {args.tag}\n\n"
             "Unsigned beta for named testers. Windows SmartScreen may require an explicit confirmation.\n\n"
             f"Corpus: {manifest['visible_games']:,} games, generation `{manifest['generation_id']}`.\n\n"
-            "Download `install-spot64-beta.ps1` and run it with PowerShell; it verifies and installs "
-            "the corpus before launching the application installer.\n",
+            "Download `install-spot64-beta.ps1` and run it with PowerShell; it verifies or reuses "
+            "the matching corpus before launching the application installer.\n",
             encoding="utf-8",
         )
         run([

@@ -22,4 +22,5 @@ for the operator procedure and the unsigned-beta limitations.
 independently checksummed ZIP volumes below GitHub Releases' per-asset limit.
 `scripts/install-spot64-beta.ps1` downloads and verifies those volumes before
 atomically installing the repository in the current Windows user's app-data
-directory.
+directory. Application-only updates reuse an already verified matching corpus,
+so returning testers do not download the multi-gigabyte dataset again.

@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Intended prerelease tag, recorded in the build artifact
         required: true
-        default: v0.1.0-beta.1
+        default: v0.1.0-beta.4
 
 permissions:
   contents: read
@@ -17,9 +17,9 @@ concurrency:
 
 env:
   TARGET: x86_64-pc-windows-msvc
-  DESKTOP_COMMIT: eafd19187956daefabcbe5b481579924a056e33f
-  API_COMMIT: 691a66ec5f9bfd3572f205847f15faaeeaeec8ff
-  STORE_COMMIT: df41dc033e6bd830abf3f4dbe4871ec90071e993
+  DESKTOP_COMMIT: 0e7198f90f19ec25a3c2f07db0eff385771d36f7
+  API_COMMIT: e3dc8218e2648efa787e07d4c324486942c9f015
+  STORE_COMMIT: 32dc51e33bb6668da8eeeee6211490f1c11b938e
 
 jobs:
   build:
@@ -34,6 +34,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: release
+
+      - name: Test incremental beta installer
+        shell: pwsh
+        run: ./release/tests/test_installer.ps1
 
       - name: Configure isolated read-only source keys
         env:

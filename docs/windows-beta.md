@@ -66,3 +66,11 @@ The script downloads every corpus volume, verifies the archive and extracted
 file hashes, installs the Store repository atomically under `%APPDATA%`, then
 launches the NSIS installer. Existing corpus data is retained as a timestamped
 backup rather than deleted.
+
+For an application-only update, the installer first compares the published
+corpus manifest with the repository already installed on the tester's machine.
+It requires the same generation ID, every declared file with its exact size,
+and matching hashes for the metadata files. When those checks pass, it skips
+all corpus ZIP downloads and only downloads the checksummed NSIS installer. Any
+missing, altered, linked, or differently versioned repository automatically
+falls back to the complete download and atomic installation path.
