@@ -128,6 +128,29 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("-ExecutionPolicy Bypass", bootstrapper)
         self.assertIn("${RELEASE_TAG}", bootstrapper)
 
+    def test_macos_installer_is_verified_resumable_and_atomic(self) -> None:
+        script = (ROOT / "scripts" / "install-spot64-beta-macos.sh").read_text()
+        self.assertNotIn("__APP_DMG_SHA256__", script)
+        self.assertIn("--continue-at -", script)
+        self.assertIn("--retry-all-errors", script)
+        self.assertIn("VOLUME_HASHES=(", script)
+        self.assertIn("shasum -a 256 -c", script)
+        self.assertIn('mv "$STAGE/libase-store" "$TARGET"', script)
+        self.assertIn("with administrator privileges", script)
+        self.assertIn('open -a "/Applications/Libase.app"', script)
+
+        checksums = (
+            ROOT / "installer" / "macos" / "corpus-files.sha256"
+        ).read_text().splitlines()
+        self.assertEqual(len(checksums), 21)
+        self.assertTrue(all(len(line.split()[0]) == 64 for line in checksums))
+
+    def test_macos_installer_builder_signs_and_verifies_bundle(self) -> None:
+        builder = (ROOT / "scripts" / "build_macos_installer.py").read_text()
+        self.assertIn('"codesign", "--force", "--deep", "--sign", "-"', builder)
+        self.assertIn('"codesign", "--verify", "--deep", "--strict"', builder)
+        self.assertIn('"--sequesterRsrc"', builder)
+
 
 if __name__ == "__main__":
     unittest.main()
