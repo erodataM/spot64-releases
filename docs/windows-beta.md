@@ -57,18 +57,18 @@ visible. A failed upload therefore never exposes a partial beta to testers.
 ## Tester installation
 
 Publish the NSIS installer, corpus manifest, every corpus ZIP volume, and
-`install-spot64-beta.ps1` on one GitHub prerelease. A tester can then run:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install-spot64-beta.ps1 -Tag TAG
-```
+`Spot64-Beta-Setup.exe` on one GitHub prerelease. A tester downloads that
+single bootstrapper and double-clicks it. It displays download and verification
+progress inside a standard Windows installer window; no terminal or execution
+policy command is required. The PowerShell asset remains available only as an
+operator recovery path.
 
 The script downloads every corpus volume, verifies the archive and extracted
 file hashes, installs the Store repository atomically under `%APPDATA%`, then
 launches the NSIS installer. Existing corpus data is retained as a timestamped
-backup rather than deleted. Verified volume downloads are cached by generation
-until installation succeeds, so extraction or reconstruction can be retried
-without downloading completed volumes again.
+backup until migration succeeds. Verified volume downloads are cached by
+generation until installation succeeds, so extraction or reconstruction can
+be retried without downloading completed volumes again.
 
 For an application-only update, the installer first compares the published
 corpus manifest with the repository already installed on the tester's machine.
@@ -77,3 +77,15 @@ and matching hashes for the metadata files. When those checks pass, it skips
 all corpus ZIP downloads and only downloads the checksummed NSIS installer. Any
 missing, altered, linked, or differently versioned repository automatically
 falls back to the complete download and atomic installation path.
+
+When a corpus update replaces the generation used by an existing editable
+primary database, the installer runs the Store's guarded empty-overlay rebase.
+It is idempotent and refuses a non-empty user overlay. On refusal or any later
+installation failure, the previous corpus is restored before the installer
+returns an error. A successful migration removes the temporary backup.
+
+This prerelease is unsigned. The bootstrapper explains that SmartScreen or
+third-party antivirus software may intervene. Testers should prefer explicitly
+allowing the downloaded installer or the `%LOCALAPPDATA%\Libase` directory. If
+real-time protection must be paused for a named beta test, it must be restored
+immediately after installation.

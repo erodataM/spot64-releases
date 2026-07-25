@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Intended prerelease tag, recorded in the build artifact
         required: true
-        default: v0.1.0-beta.6
+        default: v0.1.0-beta.7
 
 permissions:
   contents: read
@@ -18,8 +18,8 @@ concurrency:
 env:
   TARGET: x86_64-pc-windows-msvc
   DESKTOP_COMMIT: 0e7198f90f19ec25a3c2f07db0eff385771d36f7
-  API_COMMIT: e3dc8218e2648efa787e07d4c324486942c9f015
-  STORE_COMMIT: 74e3fcb2f716250e7c3f2f176802452306974181
+  API_COMMIT: 7af0a0714d6a1193f8d46a76b2e8245b54d4d699
+  STORE_COMMIT: 86e836fc12c0f67bf7602e48c86c39f1a75543d6
 
 jobs:
   build:
@@ -38,6 +38,25 @@ jobs:
       - name: Test incremental beta installer
         shell: pwsh
         run: ./release/tests/test_installer.ps1
+
+      - name: Build double-click beta bootstrapper
+        shell: pwsh
+        run: |
+          choco install nsis --yes --no-progress
+          New-Item -ItemType Directory -Path artifacts/bootstrapper -Force | Out-Null
+          Push-Location release/installer
+          try {
+            & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" `
+              "/DRELEASE_TAG=${{ inputs.release_tag }}" `
+              "/DOUTPUT_FILE=..\..\artifacts\bootstrapper\Spot64-Beta-Setup.exe" `
+              "spot64-bootstrapper.nsi"
+            if ($LASTEXITCODE -ne 0) { throw "makensis failed with status $LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }
+          if (-not (Test-Path artifacts/bootstrapper/Spot64-Beta-Setup.exe)) {
+            throw "Spot64 beta bootstrapper was not produced"
+          }
 
       - name: Configure isolated read-only source keys
         env:
@@ -236,6 +255,7 @@ jobs:
         run: |
           mkdir -p dist/windows-beta
           cp "artifacts/desktop/packages/Libase-$TARGET.exe" dist/windows-beta/
+          cp artifacts/bootstrapper/Spot64-Beta-Setup.exe dist/windows-beta/
           cp artifacts/desktop/packages/packages-manifest.json dist/windows-beta/
           cp artifacts/desktop/evidence-verify.json dist/windows-beta/
           cp release/scripts/install-spot64-beta.ps1 dist/windows-beta/

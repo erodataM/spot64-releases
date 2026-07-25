@@ -27,6 +27,9 @@ def validate_windows(root: Path, tag: str) -> list[Path]:
     installers = list(root.glob("Libase-x86_64-pc-windows-msvc*.exe"))
     if len(installers) != 1:
         raise ValueError("the Windows artifact must contain exactly one NSIS installer")
+    bootstrapper = root / "Spot64-Beta-Setup.exe"
+    if not bootstrapper.is_file() or bootstrapper.stat().st_size == 0:
+        raise ValueError("the Windows artifact must contain Spot64-Beta-Setup.exe")
     refs = json.loads((root / "source-refs.json").read_text(encoding="utf-8"))
     if refs.get("intended_release_tag") != tag or refs.get("unsigned") is not True:
         raise ValueError("source-refs.json does not match this unsigned prerelease")
@@ -94,8 +97,9 @@ def main() -> int:
             f"Corpus: {manifest['visible_games']:,} games, generation `{manifest['generation_id']}`.\n\n"
             f"Position tree: {manifest['position_max_ply']} plies "
             f"({manifest['position_max_ply'] // 2} full moves).\n\n"
-            "Download `install-spot64-beta.ps1` and run it with PowerShell; it verifies or reuses "
-            "the matching corpus before launching the application installer.\n",
+            "Download `Spot64-Beta-Setup.exe` and double-click it. The graphical bootstrapper "
+            "downloads, resumes, verifies and installs the matching corpus before launching Spot64. "
+            "No command line is required.\n",
             encoding="utf-8",
         )
         run([

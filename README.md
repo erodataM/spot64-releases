@@ -24,3 +24,7 @@ independently checksummed ZIP volumes below GitHub Releases' per-asset limit.
 atomically installing the repository in the current Windows user's app-data
 directory. Application-only updates reuse an already verified matching corpus,
 so returning testers do not download the multi-gigabyte dataset again.
+
+Named testers normally use the generated `Spot64-Beta-Setup.exe`: one
+double-click opens a standard Windows installer window and runs the same
+verified, resumable installation engine without requiring PowerShell commands.

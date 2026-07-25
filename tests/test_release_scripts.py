@@ -106,6 +106,11 @@ class InstallerContractTests(unittest.TestCase):
 
     def test_installer_retains_full_download_fallback(self) -> None:
         script = (ROOT / "scripts" / "install-spot64-beta.ps1").read_text()
+        self.assertIn("function Invoke-VerifiedDownload", script)
+        self.assertIn("--retry-all-errors", script)
+        self.assertIn("function Invoke-PrimaryDatabaseRebase", script)
+        self.assertIn("--rebase-empty-primary", script)
+        self.assertIn("Restoring the previous corpus", script)
         self.assertIn("function Test-InstalledCorpus", script)
         self.assertIn("[int]$manifest.position_max_ply -lt 40", script)
         self.assertIn("skipping corpus download", script)
@@ -113,6 +118,15 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("function Test-CachedVolume", script)
         self.assertIn("Downloading $($volume.asset)", script)
         self.assertIn("Expand-Archive", script)
+
+    def test_workflow_builds_double_click_bootstrapper(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "windows-beta.yml").read_text()
+        self.assertIn("Build double-click beta bootstrapper", workflow)
+        self.assertIn("Spot64-Beta-Setup.exe", workflow)
+        bootstrapper = (ROOT / "installer" / "spot64-bootstrapper.nsi").read_text()
+        self.assertIn("nsExec::ExecToLog", bootstrapper)
+        self.assertIn("-ExecutionPolicy Bypass", bootstrapper)
+        self.assertIn("${RELEASE_TAG}", bootstrapper)
 
 
 if __name__ == "__main__":

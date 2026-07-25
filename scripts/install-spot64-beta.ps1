@@ -2,11 +2,67 @@
 param(
     [string]$Repository = "erodataM/spot64-releases",
     [string]$Tag = "latest",
-    [switch]$SkipApplicationInstall
+    [switch]$SkipApplicationInstall,
+    [switch]$SkipApplicationLaunch
 )
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+
+function Invoke-VerifiedDownload {
+    param(
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [Parameter(Mandatory = $true)][string]$Destination,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [int]$Attempts = 5
+    )
+
+    $parent = Split-Path -Parent $Destination
+    if ($parent) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+    $curl = Get-Command "curl.exe" -ErrorAction SilentlyContinue
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        try {
+            if ($curl) {
+                $arguments = @(
+                    "--fail",
+                    "--location",
+                    "--silent",
+                    "--show-error",
+                    "--retry", "3",
+                    "--retry-all-errors",
+                    "--retry-delay", "2",
+                    "--connect-timeout", "30"
+                )
+                if (Test-Path -LiteralPath $Destination) {
+                    $arguments += @("--continue-at", "-")
+                }
+                $arguments += @("--output", $Destination, $Uri)
+                & $curl.Source @arguments
+                if ($LASTEXITCODE -ne 0) {
+                    throw "curl.exe exited with status $LASTEXITCODE"
+                }
+            } else {
+                Invoke-WebRequest -Uri $Uri -OutFile $Destination
+            }
+            if (-not (Test-PlainFile -Path $Destination)) {
+                throw "download did not produce a regular file"
+            }
+            return
+        } catch {
+            if ($LASTEXITCODE -eq 33 -and (Test-Path -LiteralPath $Destination)) {
+                Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
+            }
+            if ($attempt -eq $Attempts) {
+                throw "Unable to download $Label after $Attempts attempts: $($_.Exception.Message)"
+            }
+            $delay = [Math]::Min(30, [Math]::Pow(2, $attempt))
+            Write-Warning "$Label download interrupted (attempt $attempt/$Attempts). Retrying in $delay seconds."
+            Start-Sleep -Seconds $delay
+        }
+    }
+}
 
 function Remove-WorkDirectory {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -21,6 +77,42 @@ function Remove-WorkDirectory {
         }
     }
     Write-Warning "Temporary files remain at '$Path' because another process is using them. They can be deleted later."
+}
+
+function Assert-Spot64Stopped {
+    $running = Get-Process -Name "desktop", "libase-api", "libase-store-runtime" `
+        -ErrorAction SilentlyContinue
+    if ($running) {
+        throw "Spot64 is currently running. Close the application, then launch this installer again."
+    }
+}
+
+function Invoke-PrimaryDatabaseRebase {
+    param(
+        [Parameter(Mandatory = $true)][string]$AppData,
+        [Parameter(Mandatory = $true)][string]$Repository
+    )
+
+    $catalog = Join-Path $AppData "user-databases"
+    if (-not (Test-Path -LiteralPath (Join-Path $catalog "catalog.json"))) {
+        Write-Host "No existing user catalog requires migration."
+        return
+    }
+    $runtime = Join-Path $env:LOCALAPPDATA "Libase\libase-store-runtime.exe"
+    if (-not (Test-PlainFile -Path $runtime)) {
+        throw "The installed Store runtime is missing: $runtime"
+    }
+    Write-Host "Migrating the primary database to the new corpus..."
+    $output = & $runtime `
+        --catalog $catalog `
+        --primary-repository $Repository `
+        --verify manifest `
+        --rebase-empty-primary 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $detail = ($output | Out-String).Trim()
+        throw "Primary database migration refused. No user data was changed. $detail"
+    }
+    Write-Host (($output | Out-String).Trim())
 }
 
 function Test-PlainFile {
@@ -188,7 +280,8 @@ function Invoke-Spot64BetaInstaller {
     param(
         [Parameter(Mandatory = $true)][string]$Repository,
         [Parameter(Mandatory = $true)][string]$Tag,
-        [switch]$SkipApplicationInstall
+        [switch]$SkipApplicationInstall,
+        [switch]$SkipApplicationLaunch
     )
 
     $headers = @{ "User-Agent" = "Spot64-Beta-Installer" }
@@ -217,9 +310,16 @@ function Invoke-Spot64BetaInstaller {
     $work = Join-Path ([System.IO.Path]::GetTempPath()) ("spot64-beta-" + [guid]::NewGuid())
     $stage = Join-Path $work "stage"
     New-Item -ItemType Directory -Path $stage -Force | Out-Null
+    $backup = $null
+    $target = $null
+    $installedNewCorpus = $false
     try {
+        Assert-Spot64Stopped
         $manifestPath = Join-Path $work "spot64-corpus-manifest.json"
-        Invoke-WebRequest -Uri $assets["spot64-corpus-manifest.json"] -OutFile $manifestPath
+        Invoke-VerifiedDownload `
+            -Uri $assets["spot64-corpus-manifest.json"] `
+            -Destination $manifestPath `
+            -Label "corpus manifest"
         $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
         if (
             $manifest.schema_version -ne 2 -or
@@ -269,27 +369,47 @@ function Invoke-Spot64BetaInstaller {
         if ($reuseCorpus) {
             Write-Host "Corpus $($manifest.generation_id) already installed and verified; skipping corpus download."
         } else {
+            $volumeIndex = 0
+            $volumeCount = @($manifest.volumes).Count
             foreach ($volume in $manifest.volumes) {
+                $volumeIndex += 1
                 if (-not $assets.ContainsKey($volume.asset)) { throw "Missing release asset: $($volume.asset)" }
                 $archive = Join-Path $cache ([string]$volume.asset)
                 if ($cachedVolumes.ContainsKey([string]$volume.asset)) {
-                    Write-Host "Reusing verified download $($volume.asset)..."
+                    Write-Host "[$volumeIndex/$volumeCount] Reusing verified download $($volume.asset)..."
                 } else {
                     $partial = "$archive.download"
-                    Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
-                    Write-Host "Downloading $($volume.asset)..."
-                    Invoke-WebRequest -Uri $assets[$volume.asset] -OutFile $partial
+                    if (Test-CachedVolume -Path $partial -Volume $volume) {
+                        Write-Host "[$volumeIndex/$volumeCount] Recovering completed download $($volume.asset)..."
+                    } else {
+                        if (
+                            (Test-Path -LiteralPath $partial) -and
+                            (Get-Item -LiteralPath $partial).Length -ge [int64]$volume.size_bytes
+                        ) {
+                            Remove-Item -LiteralPath $partial -Force
+                        }
+                        Write-Host "[$volumeIndex/$volumeCount] Downloading $($volume.asset)..."
+                        Invoke-VerifiedDownload `
+                            -Uri $assets[$volume.asset] `
+                            -Destination $partial `
+                            -Label ([string]$volume.asset)
+                    }
+                    Write-Host "[$volumeIndex/$volumeCount] Verifying $($volume.asset)..."
                     $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $partial).Hash.ToLowerInvariant()
                     if ($actual -cne $volume.sha256) {
+                        Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
                         throw "SHA-256 mismatch for $($volume.asset)"
                     }
                     Move-Item -LiteralPath $partial -Destination $archive
                 }
+                Write-Host "[$volumeIndex/$volumeCount] Extracting $($volume.asset)..."
                 Expand-Archive -LiteralPath $archive -DestinationPath $stage -Force
             }
 
+            Write-Host "Reconstructing large corpus indexes..."
             Restore-CorpusParts -Stage $stage -Files $manifest.files
 
+            Write-Host "Verifying the complete corpus..."
             foreach ($file in $manifest.files) {
                 $null = Get-CorpusRelativePath -Path ([string]$file.path)
                 $candidate = Join-Path $stage ($file.path -replace '/', [IO.Path]::DirectorySeparatorChar)
@@ -303,7 +423,6 @@ function Invoke-Spot64BetaInstaller {
 
             $incoming = Join-Path $stage "libase-store"
             New-Item -ItemType Directory -Path $appData -Force | Out-Null
-            $backup = $null
             try {
                 if (Test-Path -LiteralPath $target) {
                     $backup = Join-Path $appData ("libase-store.backup-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
@@ -316,6 +435,7 @@ function Invoke-Spot64BetaInstaller {
                 }
                 throw
             }
+            $installedNewCorpus = $true
             Write-Host "Corpus $($manifest.generation_id) installed."
             Remove-WorkDirectory -Path $cache
         }
@@ -323,10 +443,16 @@ function Invoke-Spot64BetaInstaller {
         if ($installerAsset) {
             $installer = Join-Path $work $installerAsset.name
             Write-Host "Downloading the Spot64 application..."
-            Invoke-WebRequest -Uri $installerAsset.browser_download_url -OutFile $installer
+            Invoke-VerifiedDownload `
+                -Uri $installerAsset.browser_download_url `
+                -Destination $installer `
+                -Label "Spot64 application"
             if ($assets.ContainsKey("SHA256SUMS.txt")) {
                 $sumsPath = Join-Path $work "SHA256SUMS.txt"
-                Invoke-WebRequest -Uri $assets["SHA256SUMS.txt"] -OutFile $sumsPath
+                Invoke-VerifiedDownload `
+                    -Uri $assets["SHA256SUMS.txt"] `
+                    -Destination $sumsPath `
+                    -Label "application checksums"
                 $line = Get-Content $sumsPath |
                     Where-Object { $_ -match ("  " + [regex]::Escape($installerAsset.name) + "$") } |
                     Select-Object -First 1
@@ -335,8 +461,50 @@ function Invoke-Spot64BetaInstaller {
                 $actualInstallerHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash.ToLowerInvariant()
                 if ($actualInstallerHash -cne $expectedInstallerHash) { throw "Installer SHA-256 mismatch." }
             }
-            Start-Process -FilePath $installer -Wait
+            $installerProcess = Start-Process -FilePath $installer -Wait -PassThru
+            if ($installerProcess.ExitCode -ne 0) {
+                throw "The Spot64 application installer exited with status $($installerProcess.ExitCode)."
+            }
         }
+
+        if ($installedNewCorpus -and $backup) {
+            try {
+                Invoke-PrimaryDatabaseRebase -AppData $appData -Repository $target
+            } catch {
+                Write-Warning "Restoring the previous corpus because migration did not complete."
+                if (Test-Path -LiteralPath $target) {
+                    Remove-Item -LiteralPath $target -Recurse -Force
+                }
+                Move-Item -LiteralPath $backup -Destination $target
+                $backup = $null
+                throw
+            }
+        }
+        if ($backup -and (Test-Path -LiteralPath $backup)) {
+            Remove-WorkDirectory -Path $backup
+            $backup = $null
+        }
+
+        if (-not $SkipApplicationInstall -and -not $SkipApplicationLaunch) {
+            $application = Join-Path $env:LOCALAPPDATA "Libase\desktop.exe"
+            if (-not (Test-PlainFile -Path $application)) {
+                throw "Spot64 was installed but its executable is missing: $application"
+            }
+            Write-Host "Starting Spot64..."
+            Start-Process -FilePath $application
+        }
+    } catch {
+        if ($backup -and (Test-Path -LiteralPath $backup) -and $target) {
+            Write-Warning "Restoring the previous corpus after an incomplete installation."
+            if (Test-Path -LiteralPath $target) {
+                Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            if (-not (Test-Path -LiteralPath $target)) {
+                Move-Item -LiteralPath $backup -Destination $target
+                $backup = $null
+            }
+        }
+        throw
     } finally {
         Remove-WorkDirectory -Path $work
     }
@@ -346,5 +514,6 @@ if ($MyInvocation.InvocationName -ne ".") {
     Invoke-Spot64BetaInstaller `
         -Repository $Repository `
         -Tag $Tag `
-        -SkipApplicationInstall:$SkipApplicationInstall
+        -SkipApplicationInstall:$SkipApplicationInstall `
+        -SkipApplicationLaunch:$SkipApplicationLaunch
 }
