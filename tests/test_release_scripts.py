@@ -109,6 +109,8 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("function Test-InstalledCorpus", script)
         self.assertIn("[int]$manifest.position_max_ply -lt 40", script)
         self.assertIn("skipping corpus download", script)
+        self.assertIn("Reusing verified download", script)
+        self.assertIn("function Test-CachedVolume", script)
         self.assertIn("Downloading $($volume.asset)", script)
         self.assertIn("Expand-Archive", script)
 

@@ -66,7 +66,9 @@ powershell -ExecutionPolicy Bypass -File .\install-spot64-beta.ps1 -Tag TAG
 The script downloads every corpus volume, verifies the archive and extracted
 file hashes, installs the Store repository atomically under `%APPDATA%`, then
 launches the NSIS installer. Existing corpus data is retained as a timestamped
-backup rather than deleted.
+backup rather than deleted. Verified volume downloads are cached by generation
+until installation succeeds, so extraction or reconstruction can be retried
+without downloading completed volumes again.
 
 For an application-only update, the installer first compares the published
 corpus manifest with the repository already installed on the tester's machine.

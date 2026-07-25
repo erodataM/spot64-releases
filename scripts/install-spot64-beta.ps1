@@ -72,8 +72,11 @@ function Restore-CorpusParts {
     )
 
     foreach ($file in $Files) {
-        $parts = @($file.parts)
-        if ($parts.Count -eq 0) { continue }
+        if ($null -eq $file.parts) { continue }
+        $parts = @($file.parts | Where-Object { $null -ne $_ })
+        if ($parts.Count -eq 0) {
+            throw "Empty corpus file parts: $($file.path)"
+        }
         $logicalPath = Get-StagingRelativePath -Path ([string]$file.path)
         $candidate = Join-Path $Stage $logicalPath
         $parent = Split-Path -Parent $candidate
@@ -107,6 +110,20 @@ function Restore-CorpusParts {
             $targetStream.Dispose()
         }
     }
+}
+
+function Test-CachedVolume {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)]$Volume
+    )
+
+    if (-not (Test-PlainFile -Path $Path)) { return $false }
+    if ((Get-Item -LiteralPath $Path).Length -ne [int64]$Volume.size_bytes) {
+        return $false
+    }
+    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+    return $actual -ceq [string]$Volume.sha256
 }
 
 function Test-InstalledCorpus {
@@ -216,12 +233,29 @@ function Invoke-Spot64BetaInstaller {
         $appData = Join-Path $env:APPDATA "org.libase.desktop"
         $target = Join-Path $appData "libase-store"
         $reuseCorpus = Test-InstalledCorpus -Target $target -Manifest $manifest
+        $cache = Join-Path $env:LOCALAPPDATA (
+            "Spot64\download-cache\" + [string]$manifest.generation_id
+        )
+        $cachedVolumes = @{}
+        if (-not $reuseCorpus) {
+            New-Item -ItemType Directory -Path $cache -Force | Out-Null
+            foreach ($volume in $manifest.volumes) {
+                $cachedPath = Join-Path $cache ([string]$volume.asset)
+                if (Test-CachedVolume -Path $cachedPath -Volume $volume) {
+                    $cachedVolumes[[string]$volume.asset] = $true
+                } elseif (Test-Path -LiteralPath $cachedPath) {
+                    Remove-Item -LiteralPath $cachedPath -Force
+                }
+            }
+        }
 
         $requiredBytes = 512MB
         if (-not $reuseCorpus) {
             $requiredBytes += [int64]$manifest.unpacked_bytes
             foreach ($volume in $manifest.volumes) {
-                $requiredBytes += [int64]$volume.size_bytes
+                if (-not $cachedVolumes.ContainsKey([string]$volume.asset)) {
+                    $requiredBytes += [int64]$volume.size_bytes
+                }
             }
             $requiredBytes += 1GB
         }
@@ -237,11 +271,20 @@ function Invoke-Spot64BetaInstaller {
         } else {
             foreach ($volume in $manifest.volumes) {
                 if (-not $assets.ContainsKey($volume.asset)) { throw "Missing release asset: $($volume.asset)" }
-                $archive = Join-Path $work $volume.asset
-                Write-Host "Downloading $($volume.asset)..."
-                Invoke-WebRequest -Uri $assets[$volume.asset] -OutFile $archive
-                $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
-                if ($actual -cne $volume.sha256) { throw "SHA-256 mismatch for $($volume.asset)" }
+                $archive = Join-Path $cache ([string]$volume.asset)
+                if ($cachedVolumes.ContainsKey([string]$volume.asset)) {
+                    Write-Host "Reusing verified download $($volume.asset)..."
+                } else {
+                    $partial = "$archive.download"
+                    Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
+                    Write-Host "Downloading $($volume.asset)..."
+                    Invoke-WebRequest -Uri $assets[$volume.asset] -OutFile $partial
+                    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $partial).Hash.ToLowerInvariant()
+                    if ($actual -cne $volume.sha256) {
+                        throw "SHA-256 mismatch for $($volume.asset)"
+                    }
+                    Move-Item -LiteralPath $partial -Destination $archive
+                }
                 Expand-Archive -LiteralPath $archive -DestinationPath $stage -Force
             }
 
@@ -274,6 +317,7 @@ function Invoke-Spot64BetaInstaller {
                 throw
             }
             Write-Host "Corpus $($manifest.generation_id) installed."
+            Remove-WorkDirectory -Path $cache
         }
 
         if ($installerAsset) {
