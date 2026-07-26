@@ -1,6 +1,6 @@
 # Tester Spot64 sous Windows
 
-Ce guide concerne la beta Windows `v0.1.0-beta.7`.
+Ce guide concerne la beta Windows `v0.1.0-beta.9`.
 
 ## Avant de commencer
 
@@ -18,15 +18,16 @@ d'environ 10 Go.
 ## Installation
 
 1. Télécharger
-   [Spot64-Beta-Setup.exe](https://github.com/erodataM/spot64-releases/releases/download/v0.1.0-beta.7/Spot64-Beta-Setup.exe).
+   [Spot64-Beta-Setup.exe](https://github.com/erodataM/spot64-releases/releases/download/v0.1.0-beta.9/Spot64-Beta-Setup.exe).
 2. Fermer une éventuelle ancienne version de Libase ou Spot64.
 3. Double-cliquer sur `Spot64-Beta-Setup.exe`.
 4. Si Windows SmartScreen affiche **Windows a protégé votre ordinateur**,
    cliquer sur **Informations complémentaires**, puis
    **Exécuter quand même**.
-5. Laisser la fenêtre d'installation ouverte. Elle télécharge les six parties
-   du corpus, vérifie leur intégrité, installe la base, puis installe
-   l'application.
+5. Laisser la fenêtre d'installation ouverte. Lors d'une première
+   installation, elle télécharge les six parties du corpus, vérifie leur
+   intégrité, installe la base, puis installe l'application. Une mise à jour
+   réutilise automatiquement le corpus déjà vérifié.
 6. Une fois l'installation terminée, lancer **Libase** depuis le menu
    Démarrer.
 
@@ -92,4 +93,3 @@ Transmettre :
 - le nom de l'antivirus ;
 - l'étape à laquelle le problème apparaît ;
 - le texte exact d'une éventuelle erreur de l'installateur.
-
