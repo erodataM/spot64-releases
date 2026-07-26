@@ -3,7 +3,8 @@ param(
     [string]$Repository = "erodataM/spot64-releases",
     [string]$Tag = "latest",
     [switch]$SkipApplicationInstall,
-    [switch]$SkipApplicationLaunch
+    [switch]$SkipApplicationLaunch,
+    [switch]$SilentApplicationInstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -281,7 +282,8 @@ function Invoke-Spot64BetaInstaller {
         [Parameter(Mandatory = $true)][string]$Repository,
         [Parameter(Mandatory = $true)][string]$Tag,
         [switch]$SkipApplicationInstall,
-        [switch]$SkipApplicationLaunch
+        [switch]$SkipApplicationLaunch,
+        [switch]$SilentApplicationInstall
     )
 
     $headers = @{ "User-Agent" = "Spot64-Beta-Installer" }
@@ -461,9 +463,21 @@ function Invoke-Spot64BetaInstaller {
                 $actualInstallerHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash.ToLowerInvariant()
                 if ($actualInstallerHash -cne $expectedInstallerHash) { throw "Installer SHA-256 mismatch." }
             }
-            $installerProcess = Start-Process -FilePath $installer -Wait -PassThru
+            if ($SilentApplicationInstall) {
+                $installerProcess = Start-Process `
+                    -FilePath $installer `
+                    -ArgumentList "/S" `
+                    -Wait `
+                    -PassThru
+            } else {
+                $installerProcess = Start-Process -FilePath $installer -Wait -PassThru
+            }
             if ($installerProcess.ExitCode -ne 0) {
                 throw "The Spot64 application installer exited with status $($installerProcess.ExitCode)."
+            }
+            $application = Join-Path $env:LOCALAPPDATA "Libase\desktop.exe"
+            if (-not (Test-PlainFile -Path $application)) {
+                throw "The Spot64 application installer completed but its executable is missing: $application"
             }
         }
 
@@ -486,10 +500,6 @@ function Invoke-Spot64BetaInstaller {
         }
 
         if (-not $SkipApplicationInstall -and -not $SkipApplicationLaunch) {
-            $application = Join-Path $env:LOCALAPPDATA "Libase\desktop.exe"
-            if (-not (Test-PlainFile -Path $application)) {
-                throw "Spot64 was installed but its executable is missing: $application"
-            }
             Write-Host "Starting Spot64..."
             Start-Process -FilePath $application
         }
@@ -515,5 +525,6 @@ if ($MyInvocation.InvocationName -ne ".") {
         -Repository $Repository `
         -Tag $Tag `
         -SkipApplicationInstall:$SkipApplicationInstall `
-        -SkipApplicationLaunch:$SkipApplicationLaunch
+        -SkipApplicationLaunch:$SkipApplicationLaunch `
+        -SilentApplicationInstall:$SilentApplicationInstall
 }

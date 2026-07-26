@@ -118,6 +118,12 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("function Test-CachedVolume", script)
         self.assertIn("Downloading $($volume.asset)", script)
         self.assertIn("Expand-Archive", script)
+        self.assertIn("[switch]$SilentApplicationInstall", script)
+        self.assertIn('-ArgumentList "/S"', script)
+        self.assertIn(
+            "installer completed but its executable is missing",
+            script,
+        )
 
     def test_workflow_builds_double_click_bootstrapper(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "windows-beta.yml").read_text()
@@ -127,6 +133,8 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("nsExec::ExecToLog", bootstrapper)
         self.assertIn("-ExecutionPolicy Bypass", bootstrapper)
         self.assertIn("${RELEASE_TAG}", bootstrapper)
+        self.assertIn("-SilentApplicationInstall -SkipApplicationLaunch", bootstrapper)
+        self.assertIn('MUI_FINISHPAGE_RUN "$LOCALAPPDATA\\Libase\\desktop.exe"', bootstrapper)
 
     def test_macos_installer_is_verified_resumable_and_atomic(self) -> None:
         script = (ROOT / "scripts" / "install-spot64-beta-macos.sh").read_text()
