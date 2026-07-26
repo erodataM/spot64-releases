@@ -28,3 +28,6 @@ so returning testers do not download the multi-gigabyte dataset again.
 Named testers normally use the generated `Spot64-Beta-Setup.exe`: one
 double-click opens a standard Windows installer window and runs the same
 verified, resumable installation engine without requiring PowerShell commands.
+
+The ready-to-share French tester instructions are in
+[`docs/windows-tester-guide-fr.md`](docs/windows-tester-guide-fr.md).
