@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Intended prerelease tag, recorded in the build artifact
         required: true
-        default: v0.1.0-beta.7
+        default: v0.1.0-beta.9
 
 permissions:
   contents: read
@@ -17,9 +17,9 @@ concurrency:
 
 env:
   TARGET: x86_64-pc-windows-msvc
-  DESKTOP_COMMIT: 0e7198f90f19ec25a3c2f07db0eff385771d36f7
-  API_COMMIT: 7af0a0714d6a1193f8d46a76b2e8245b54d4d699
-  STORE_COMMIT: 86e836fc12c0f67bf7602e48c86c39f1a75543d6
+  DESKTOP_COMMIT: 63872c98a29b25a2efa350bc421833698f88dc68
+  API_COMMIT: 67074c76037054d4f5ab9bd7295323f943ea2d73
+  STORE_COMMIT: 77cd429c41ccdbda5fc83025c689f42d80d69732
 
 jobs:
   build:

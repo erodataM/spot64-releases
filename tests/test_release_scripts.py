@@ -156,6 +156,12 @@ class InstallerContractTests(unittest.TestCase):
     def test_macos_installer_builder_signs_and_verifies_bundle(self) -> None:
         builder = (ROOT / "scripts" / "build_macos_installer.py").read_text()
         self.assertIn('"codesign", "--force", "--deep", "--sign", "-"', builder)
+        dmg_builder = (ROOT / "scripts" / "build_macos_dmg.py").read_text()
+        self.assertIn('"codesign", "--force", "--deep", "--sign", "-"', dmg_builder)
+        self.assertGreaterEqual(dmg_builder.count('"--verify"'), 2)
+        self.assertIn('"attach"', dmg_builder)
+        self.assertIn('"detach"', dmg_builder)
+        self.assertIn('"-readonly"', dmg_builder)
         self.assertIn('"codesign", "--verify", "--deep", "--strict"', builder)
         self.assertIn('"--sequesterRsrc"', builder)
 
