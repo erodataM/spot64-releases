@@ -17,6 +17,7 @@ concurrency:
 
 env:
   TARGET: x86_64-pc-windows-msvc
+  CORPUS_TAG: v0.1.0-beta.7
   DESKTOP_COMMIT: 63872c98a29b25a2efa350bc421833698f88dc68
   API_COMMIT: 67074c76037054d4f5ab9bd7295323f943ea2d73
   STORE_COMMIT: 77cd429c41ccdbda5fc83025c689f42d80d69732
@@ -48,6 +49,7 @@ jobs:
           try {
             & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" `
               "/DRELEASE_TAG=${{ inputs.release_tag }}" `
+              "/DCORPUS_TAG=$env:CORPUS_TAG" `
               "/DOUTPUT_FILE=..\..\artifacts\bootstrapper\Spot64-Beta-Setup.exe" `
               "spot64-bootstrapper.nsi"
             if ($LASTEXITCODE -ne 0) { throw "makensis failed with status $LASTEXITCODE" }

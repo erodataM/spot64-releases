@@ -116,6 +116,8 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("skipping corpus download", script)
         self.assertIn("Reusing verified download", script)
         self.assertIn("function Test-CachedVolume", script)
+        self.assertIn('$corpusAssets = @{}', script)
+        self.assertIn("-CorpusTag $CorpusTag", script)
         self.assertIn("Downloading $($volume.asset)", script)
         self.assertIn("Expand-Archive", script)
         self.assertIn("[switch]$SilentApplicationInstall", script)
@@ -129,11 +131,13 @@ class InstallerContractTests(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "windows-beta.yml").read_text()
         self.assertIn("Build double-click beta bootstrapper", workflow)
         self.assertIn("Spot64-Beta-Setup.exe", workflow)
+        self.assertIn('"/DCORPUS_TAG=$env:CORPUS_TAG"', workflow)
         bootstrapper = (ROOT / "installer" / "spot64-bootstrapper.nsi").read_text()
         self.assertIn("nsExec::ExecToLog", bootstrapper)
         self.assertIn("-ExecutionPolicy Bypass", bootstrapper)
         self.assertIn("${RELEASE_TAG}", bootstrapper)
         self.assertIn("-SilentApplicationInstall -SkipApplicationLaunch", bootstrapper)
+        self.assertIn('-CorpusTag "${CORPUS_TAG}"', bootstrapper)
         self.assertIn('MUI_FINISHPAGE_RUN "$LOCALAPPDATA\\Libase\\desktop.exe"', bootstrapper)
 
     def test_macos_installer_is_verified_resumable_and_atomic(self) -> None:

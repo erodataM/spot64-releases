@@ -2,6 +2,7 @@
 param(
     [string]$Repository = "erodataM/spot64-releases",
     [string]$Tag = "latest",
+    [string]$CorpusTag = "",
     [switch]$SkipApplicationInstall,
     [switch]$SkipApplicationLaunch,
     [switch]$SilentApplicationInstall
@@ -281,6 +282,7 @@ function Invoke-Spot64BetaInstaller {
     param(
         [Parameter(Mandatory = $true)][string]$Repository,
         [Parameter(Mandatory = $true)][string]$Tag,
+        [string]$CorpusTag = "",
         [switch]$SkipApplicationInstall,
         [switch]$SkipApplicationLaunch,
         [switch]$SilentApplicationInstall
@@ -295,9 +297,21 @@ function Invoke-Spot64BetaInstaller {
         $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases/tags/$Tag" -Headers $headers
     }
 
+    if ([string]::IsNullOrWhiteSpace($CorpusTag) -or $CorpusTag -eq $Tag) {
+        $corpusRelease = $release
+    } else {
+        $corpusRelease = Invoke-RestMethod `
+            -Uri "https://api.github.com/repos/$Repository/releases/tags/$CorpusTag" `
+            -Headers $headers
+    }
+
     $assets = @{}
     foreach ($asset in $release.assets) { $assets[$asset.name] = $asset.browser_download_url }
-    if (-not $assets.ContainsKey("spot64-corpus-manifest.json")) {
+    $corpusAssets = @{}
+    foreach ($asset in $corpusRelease.assets) {
+        $corpusAssets[$asset.name] = $asset.browser_download_url
+    }
+    if (-not $corpusAssets.ContainsKey("spot64-corpus-manifest.json")) {
         throw "This release has no Spot64 corpus manifest."
     }
 
@@ -319,7 +333,7 @@ function Invoke-Spot64BetaInstaller {
         Assert-Spot64Stopped
         $manifestPath = Join-Path $work "spot64-corpus-manifest.json"
         Invoke-VerifiedDownload `
-            -Uri $assets["spot64-corpus-manifest.json"] `
+            -Uri $corpusAssets["spot64-corpus-manifest.json"] `
             -Destination $manifestPath `
             -Label "corpus manifest"
         $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
@@ -375,7 +389,7 @@ function Invoke-Spot64BetaInstaller {
             $volumeCount = @($manifest.volumes).Count
             foreach ($volume in $manifest.volumes) {
                 $volumeIndex += 1
-                if (-not $assets.ContainsKey($volume.asset)) { throw "Missing release asset: $($volume.asset)" }
+                if (-not $corpusAssets.ContainsKey($volume.asset)) { throw "Missing release asset: $($volume.asset)" }
                 $archive = Join-Path $cache ([string]$volume.asset)
                 if ($cachedVolumes.ContainsKey([string]$volume.asset)) {
                     Write-Host "[$volumeIndex/$volumeCount] Reusing verified download $($volume.asset)..."
@@ -392,7 +406,7 @@ function Invoke-Spot64BetaInstaller {
                         }
                         Write-Host "[$volumeIndex/$volumeCount] Downloading $($volume.asset)..."
                         Invoke-VerifiedDownload `
-                            -Uri $assets[$volume.asset] `
+                            -Uri $corpusAssets[$volume.asset] `
                             -Destination $partial `
                             -Label ([string]$volume.asset)
                     }
@@ -524,6 +538,7 @@ if ($MyInvocation.InvocationName -ne ".") {
     Invoke-Spot64BetaInstaller `
         -Repository $Repository `
         -Tag $Tag `
+        -CorpusTag $CorpusTag `
         -SkipApplicationInstall:$SkipApplicationInstall `
         -SkipApplicationLaunch:$SkipApplicationLaunch `
         -SilentApplicationInstall:$SilentApplicationInstall

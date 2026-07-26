@@ -56,12 +56,14 @@ visible. A failed upload therefore never exposes a partial beta to testers.
 
 ## Tester installation
 
-Publish the NSIS installer, corpus manifest, every corpus ZIP volume, and
-`Spot64-Beta-Setup.exe` on one GitHub prerelease. A tester downloads that
-single bootstrapper and double-clicks it. It displays download and verification
-progress inside a standard Windows installer window; no terminal or execution
-policy command is required. The PowerShell asset remains available only as an
-operator recovery path.
+Publish the NSIS installer and `Spot64-Beta-Setup.exe` on the application
+prerelease. The bootstrapper pins the separately published, immutable corpus
+release, so application-only releases do not duplicate several gigabytes of
+verified corpus assets. A tester downloads that single bootstrapper and
+double-clicks it. It displays download and verification progress inside a
+standard Windows installer window; no terminal or execution policy command is
+required. The PowerShell asset remains available only as an operator recovery
+path.
 
 The script downloads every corpus volume, verifies the archive and extracted
 file hashes, installs the Store repository atomically under `%APPDATA%`, then

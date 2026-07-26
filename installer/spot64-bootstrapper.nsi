@@ -11,6 +11,10 @@ Unicode True
   !define OUTPUT_FILE "Spot64-Beta-Setup.exe"
 !endif
 
+!ifndef CORPUS_TAG
+  !define CORPUS_TAG "v0.1.0-beta.7"
+!endif
+
 Name "Spot64 Beta"
 OutFile "${OUTPUT_FILE}"
 RequestExecutionLevel user
@@ -41,7 +45,7 @@ Section "Spot64 Beta" MainSection
     "Cette version bêta n'est pas encore signée.$\r$\n$\r$\nSi votre antivirus bloque l'installation, annulez, autorisez explicitement Spot64 ou suspendez temporairement sa protection en temps réel, puis réactivez-la immédiatement après l'installation."
 
   DetailPrint "Préparation de Spot64 ${RELEASE_TAG}..."
-  nsExec::ExecToLog 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\install-spot64-beta.ps1" -Tag "${RELEASE_TAG}" -SilentApplicationInstall -SkipApplicationLaunch'
+  nsExec::ExecToLog 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\install-spot64-beta.ps1" -Tag "${RELEASE_TAG}" -CorpusTag "${CORPUS_TAG}" -SilentApplicationInstall -SkipApplicationLaunch'
   Pop $0
   ${If} $0 != 0
     MessageBox MB_ICONSTOP|MB_OK \
