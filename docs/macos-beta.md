@@ -3,8 +3,9 @@
 ## Supported Macs
 
 This beta is for Apple Silicon Macs (`M1`, `M2`, `M3`, `M4` and later) running
-macOS 12 or later. It needs about 18 GB of free disk space during installation.
-The final application and corpus use about 10 GB.
+macOS 12 or later. A first installation needs about 24 GB of free disk space.
+An application-only update reuses the verified corpus and needs about 2 GB.
+The final application and corpus use about 17 GB.
 
 ## Tester procedure
 
@@ -19,10 +20,12 @@ The final application and corpus use about 10 GB.
    application into `/Applications`.
 6. Spot64 opens automatically when installation completes.
 
-The installer downloads about 5 GB and installs a verified 10 GB corpus with
-11,157,455 games and a 40-ply position index. It never activates a partially
-downloaded or unverified corpus. A previous corpus is moved to a timestamped
-backup before the new one is activated.
+On a first installation, the installer downloads about 5 GB and installs a
+verified 17 GB corpus with 11,157,455 games and a 40-ply position index. It
+never activates a partially downloaded or unverified corpus. On later
+application updates, a byte-verified matching corpus is reused without being
+downloaded or extracted again. A different previous corpus is moved to a
+timestamped backup before a replacement is activated.
 
 ## Gatekeeper
 
@@ -34,4 +37,3 @@ Apple-notarized. If macOS blocks the installer:
 3. Click **Open Anyway**, then confirm.
 
 No Terminal command needs to be copied or pasted.
-

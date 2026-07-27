@@ -2,10 +2,10 @@
 
 set -euo pipefail
 
-APP_TAG="${SPOT64_APP_TAG:-v0.1.0-beta.9}"
+APP_TAG="${SPOT64_APP_TAG:-v0.1.0-beta.10}"
 CORPUS_TAG="${SPOT64_CORPUS_TAG:-v0.1.0-beta.7}"
-APP_ASSET="Spot64_0.1.0-beta.9_aarch64.dmg"
-APP_SHA256="4f302ac51a4263c79db570c8bde875bf195c4b5d10cea0da0048488845d439d4"
+APP_ASSET="Spot64_0.1.0-beta.10_aarch64.dmg"
+APP_SHA256="352aaf62b69c99f47e5cc48b6f0f13bb5784854c18daf68da3f4fa58309e5e72"
 GENERATION_ID="4deebdced6fe5e3a1982bd10b1c91379164bc0bd46eaa9ce5bb95e20dbc8b9cc"
 RELEASE_ROOT="https://github.com/erodataM/spot64-releases/releases/download"
 RESOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -85,6 +85,21 @@ download_verified() {
   /bin/mv -f "$partial" "$destination"
 }
 
+has_verified_corpus() {
+  [[ -f "$TARGET/current.json" ]] || return 1
+
+  local active_generation
+  active_generation="$(
+    /usr/bin/plutil -extract currentGenerationId raw -o - "$TARGET/current.json" 2>/dev/null
+  )" || return 1
+  [[ "$active_generation" == "$GENERATION_ID" ]] || return 1
+
+  (
+    cd "$TARGET"
+    /usr/bin/shasum -a 256 -c "$RESOURCE_DIR/corpus-files.sha256" >/dev/null 2>&1
+  )
+}
+
 install_application() {
   local dmg="$1"
 
@@ -117,10 +132,20 @@ printf "======================\n\n"
 [[ -f "$RESOURCE_DIR/corpus-files.sha256" ]] ||
   fail "le manifeste de verification manque dans l'installateur"
 
+reuse_corpus=0
+if has_verified_corpus; then
+  reuse_corpus=1
+  printf "Corpus existant verifie: il sera reutilise sans telechargement.\n"
+fi
+
 available_kb="$(/bin/df -Pk "$HOME" | /usr/bin/awk 'NR == 2 {print $4}')"
-required_kb=$((18 * 1024 * 1024))
+if [[ "$reuse_corpus" -eq 1 ]]; then
+  required_kb=$((2 * 1024 * 1024))
+else
+  required_kb=$((24 * 1024 * 1024))
+fi
 [[ "$available_kb" -ge "$required_kb" ]] ||
-  fail "18 Go libres sont requis pendant l'installation"
+  fail "$((required_kb / 1024 / 1024)) Go libres sont requis pendant l'installation"
 
 /bin/mkdir -p "$CORPUS_CACHE" "$STAGE" "$MOUNT_POINT"
 
@@ -131,47 +156,49 @@ download_verified \
   "$APP_SHA256" \
   "application Spot64"
 
-for index in "${!VOLUME_NAMES[@]}"; do
-  name="${VOLUME_NAMES[$index]}"
-  download_verified \
-    "$RELEASE_ROOT/$CORPUS_TAG/$name" \
-    "$CORPUS_CACHE/$name" \
-    "${VOLUME_HASHES[$index]}" \
-    "corpus $((index + 1))/${#VOLUME_NAMES[@]}"
-done
+if [[ "$reuse_corpus" -eq 0 ]]; then
+  for index in "${!VOLUME_NAMES[@]}"; do
+    name="${VOLUME_NAMES[$index]}"
+    download_verified \
+      "$RELEASE_ROOT/$CORPUS_TAG/$name" \
+      "$CORPUS_CACHE/$name" \
+      "${VOLUME_HASHES[$index]}" \
+      "corpus $((index + 1))/${#VOLUME_NAMES[@]}"
+  done
 
-printf "\nExtraction du corpus (environ 10 Go)...\n"
-for name in "${VOLUME_NAMES[@]}"; do
-  /usr/bin/ditto -x -k "$CORPUS_CACHE/$name" "$STAGE" ||
-    fail "extraction impossible: $name"
-done
+  printf "\nExtraction du corpus (environ 17 Go)...\n"
+  for name in "${VOLUME_NAMES[@]}"; do
+    /usr/bin/ditto -x -k "$CORPUS_CACHE/$name" "$STAGE" ||
+      fail "extraction impossible: $name"
+  done
 
-POSITION_DIR="$STAGE/libase-store/generations/$GENERATION_ID/segments/base-000000/position.dir"
-/bin/mkdir -p "$(dirname "$POSITION_DIR")"
-/bin/cat \
-  "$STAGE/.spot64-parts/000016-part-001" \
-  "$STAGE/.spot64-parts/000016-part-002" \
-  "$STAGE/.spot64-parts/000016-part-003" \
-  > "$POSITION_DIR" || fail "reconstruction de l'index de positions impossible"
+  POSITION_DIR="$STAGE/libase-store/generations/$GENERATION_ID/segments/base-000000/position.dir"
+  /bin/mkdir -p "$(dirname "$POSITION_DIR")"
+  /bin/cat \
+    "$STAGE/.spot64-parts/000016-part-001" \
+    "$STAGE/.spot64-parts/000016-part-002" \
+    "$STAGE/.spot64-parts/000016-part-003" \
+    > "$POSITION_DIR" || fail "reconstruction de l'index de positions impossible"
 
-printf "\nVerification complete du corpus...\n"
-(
-  cd "$STAGE/libase-store"
-  /usr/bin/shasum -a 256 -c "$RESOURCE_DIR/corpus-files.sha256"
-) || fail "verification du corpus echouee"
+  printf "\nVerification complete du corpus...\n"
+  (
+    cd "$STAGE/libase-store"
+    /usr/bin/shasum -a 256 -c "$RESOURCE_DIR/corpus-files.sha256"
+  ) || fail "verification du corpus echouee"
+
+  if [[ -e "$TARGET" ]]; then
+    backup="$APP_DATA/libase-store.backup-$(/bin/date +%Y%m%d-%H%M%S)"
+    /bin/mv "$TARGET" "$backup" ||
+      fail "impossible de mettre l'ancienne base en securite"
+    printf "Ancienne base conservee dans: %s\n" "$backup"
+  fi
+
+  /bin/mv "$STAGE/libase-store" "$TARGET" ||
+    fail "activation atomique du corpus impossible"
+fi
 
 /usr/bin/osascript -e 'tell application "Libase" to quit' >/dev/null 2>&1 || true
 /bin/sleep 2
-
-if [[ -e "$TARGET" ]]; then
-  backup="$APP_DATA/libase-store.backup-$(/bin/date +%Y%m%d-%H%M%S)"
-  /bin/mv "$TARGET" "$backup" ||
-    fail "impossible de mettre l'ancienne base en securite"
-  printf "Ancienne base conservee dans: %s\n" "$backup"
-fi
-
-/bin/mv "$STAGE/libase-store" "$TARGET" ||
-  fail "activation atomique du corpus impossible"
 
 install_application "$APP_DMG"
 
