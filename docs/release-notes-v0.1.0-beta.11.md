@@ -1,5 +1,11 @@
 # Spot64 v0.1.0-beta.11
 
+> Retiree / Withdrawn: cette version restait incapable d'afficher certaines
+> parties longues. Utilisez la beta 12 ou une version plus recente.
+>
+> This release could still fail to render some long games. Use beta 12 or a
+> newer release.
+
 ## Francais
 
 Cette version corrige un blocage de la beta 10 :
