@@ -152,6 +152,9 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn('if [[ "$reuse_corpus" -eq 0 ]]', script)
         self.assertIn("Corpus existant verifie", script)
         self.assertIn('mv "$STAGE/libase-store" "$TARGET"', script)
+        self.assertIn('if [[ -w "/Applications" ]]', script)
+        self.assertIn('ditto "$MOUNT_POINT/Libase.app" "$APP_STAGE"', script)
+        self.assertIn('if [[ "$installed" -eq 0 ]]', script)
         self.assertIn("with administrator privileges", script)
         self.assertIn('open -a "/Applications/Libase.app"', script)
 

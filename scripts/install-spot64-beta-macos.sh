@@ -35,10 +35,14 @@ VOLUME_HASHES=(
 )
 
 mounted=0
+APP_STAGE="/Applications/.Libase.app.spot64-$$"
 
 cleanup() {
   if [[ "$mounted" -eq 1 ]]; then
     /usr/bin/hdiutil detach "$MOUNT_POINT" -quiet || true
+  fi
+  if [[ -e "$APP_STAGE" ]]; then
+    /bin/rm -rf "$APP_STAGE" || true
   fi
   if [[ -d "$WORK_ROOT" ]]; then
     /bin/rm -rf "$WORK_ROOT"
@@ -102,6 +106,8 @@ has_verified_corpus() {
 
 install_application() {
   local dmg="$1"
+  local target="/Applications/Libase.app"
+  local installed=0
 
   /bin/mkdir -p "$MOUNT_POINT"
   /usr/bin/hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$MOUNT_POINT" -quiet ||
@@ -109,7 +115,19 @@ install_application() {
   mounted=1
   [[ -d "$MOUNT_POINT/Libase.app" ]] || fail "Libase.app est absent de l'image disque"
 
-  /usr/bin/osascript - "$MOUNT_POINT/Libase.app" <<'APPLESCRIPT' ||
+  if [[ -w "/Applications" ]]; then
+    /bin/rm -rf "$APP_STAGE"
+    if /usr/bin/ditto "$MOUNT_POINT/Libase.app" "$APP_STAGE" &&
+      /usr/bin/xattr -dr com.apple.quarantine "$APP_STAGE" &&
+      /bin/rm -rf "$target" &&
+      /bin/mv "$APP_STAGE" "$target"; then
+      installed=1
+    fi
+    /bin/rm -rf "$APP_STAGE"
+  fi
+
+  if [[ "$installed" -eq 0 ]]; then
+    /usr/bin/osascript - "$MOUNT_POINT/Libase.app" <<'APPLESCRIPT' ||
 on run argv
   set sourceApp to item 1 of argv
   set commandText to "/bin/rm -rf /Applications/Libase.app && " & ¬
@@ -118,9 +136,10 @@ on run argv
   do shell script commandText with administrator privileges
 end run
 APPLESCRIPT
-    fail "installation de l'application refusee"
+      fail "installation de l'application refusee"
+  fi
 
-  /usr/bin/codesign --verify --deep --strict "/Applications/Libase.app" ||
+  /usr/bin/codesign --verify --deep --strict "$target" ||
     fail "signature locale de l'application invalide"
 }
 
