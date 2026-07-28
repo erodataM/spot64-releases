@@ -2,10 +2,10 @@
 
 set -euo pipefail
 
-APP_TAG="${SPOT64_APP_TAG:-v0.1.0-beta.12}"
+APP_TAG="${SPOT64_APP_TAG:-v0.1.0-beta.13}"
 CORPUS_TAG="${SPOT64_CORPUS_TAG:-v0.1.0-beta.7}"
-APP_ASSET="Spot64_0.1.0-beta.12_aarch64.dmg"
-APP_SHA256="41604ba7fa9047153a5488f23c8f5509f4e14da11ab2f42ff5e02607866b05a7"
+APP_ASSET="Spot64_0.1.0-beta.13_aarch64.dmg"
+APP_SHA256="501a76dc52690b13db4dba9d346a6aeb7e6f158cb45954201a5f1fa81e4cb7c7"
 GENERATION_ID="4deebdced6fe5e3a1982bd10b1c91379164bc0bd46eaa9ce5bb95e20dbc8b9cc"
 RELEASE_ROOT="https://github.com/erodataM/spot64-releases/releases/download"
 RESOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
